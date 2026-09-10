@@ -1,0 +1,53 @@
+[
+  {
+    "source_id": "SRC-01",
+    "place_id": "ChIJ_new_dental_bentonville",
+    "name": "Ozark Family Dental",
+    "formatted_address": "123 SE 5th St, Bentonville, AR 72712, USA",
+    "city_query": "Bentonville",
+    "property_type": "Medical/Dental",
+    "category_query": "medical or dental office in Bentonville, AR",
+    "types": ["dentist", "health", "point_of_interest", "establishment"],
+    "primary_type": "dentist",
+    "rating": null,
+    "user_rating_count": 0,
+    "phone": "+14795551234",
+    "website": "https://ozarkfamilydental.com",
+    "source_url": "https://maps.google.com/?cid=1111111111",
+    "retrieved_at": "2026-09-10T14:02:11+00:00"
+  },
+  {
+    "source_id": "SRC-01",
+    "place_id": "ChIJ_missing_name",
+    "name": null,
+    "formatted_address": "456 N Walton Blvd, Rogers, AR 72756, USA",
+    "city_query": "Rogers",
+    "property_type": "Coworking",
+    "category_query": "coworking space in Rogers, AR",
+    "types": ["point_of_interest", "establishment"],
+    "primary_type": null,
+    "rating": null,
+    "user_rating_count": 1,
+    "phone": null,
+    "website": null,
+    "source_url": "https://maps.google.com/?cid=2222222222",
+    "retrieved_at": "2026-09-10T14:05:00+00:00"
+  },
+  {
+    "source_id": "SRC-01",
+    "place_id": "ChIJ_missing_address",
+    "name": "Some Fitness Studio",
+    "formatted_address": null,
+    "city_query": "Fayetteville",
+    "property_type": "Fitness",
+    "category_query": "fitness center in Fayetteville, AR",
+    "types": ["gym", "health", "point_of_interest", "establishment"],
+    "primary_type": "gym",
+    "rating": null,
+    "user_rating_count": 2,
+    "phone": null,
+    "website": null,
+    "source_url": "https://maps.google.com/?cid=3333333333",
+    "retrieved_at": "2026-09-10T14:07:00+00:00"
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "source_id": "SRC-01",
+  "field_map": {
+    "name": "Lead_Name",
+    "phone": "Phone",
+    "website": "Website",
+    "source_url": "Source_URL",
+    "property_type": "Property_Type",
+    "primary_type": "Business_Type",
+    "city_query": "City"
+  },
+  "fixed_fields": {
+    "State": "AR",
+    "Lead_Source": "SRC-01",
+    "Signal_ID": "SIG-03"
+  },
+  "signal_to_recommended_service": {
+    "SIG-03": "Recurring Janitorial"
+  },
+  "notes": "SRC-01's collector (src/collector_src01.py) already filters to the SIG-03 near-zero-review heuristic before a record reaches normalization, so every SRC-01 raw record maps to SIG-03. Signal_Date has no independent source value for SIG-03 (no 'date opened' field exists in Places data, PRD §12) so it is set equal to Discovered_Date -- the date this listing was first observed."
+}

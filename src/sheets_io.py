@@ -12,6 +12,8 @@ from typing import Any
 
 import gspread
 
+# Exact column order for the Lead tab -- must match docs/sheets_schema.md / the real
+# Sheet's header row, since rows are appended as plain positional lists, not by name.
 LEAD_COLUMNS = [
     "Lead_ID", "Discovered_Date", "Signal_ID", "Signal_Date", "Lead_Name", "Company",
     "Contact_Name", "Address", "City", "State", "ZIP", "Phone", "Email", "Website",
@@ -22,12 +24,15 @@ LEAD_COLUMNS = [
     "Updated_At",
 ]
 
+# Same idea for the Evidence_Log tab.
 EVIDENCE_COLUMNS = [
     "Evidence_ID", "Lead_ID", "Source_ID", "Source_URL", "Retrieved_At", "Raw_Snippet",
 ]
 
 
 def get_client(credentials_filename: str, authorized_user_filename: str) -> gspread.Client:
+    # gspread.oauth() handles the whole OAuth dance: opens a browser the first time for
+    # approval, then reuses the cached token file on every subsequent run.
     return gspread.oauth(
         credentials_filename=credentials_filename,
         authorized_user_filename=authorized_user_filename,
@@ -39,6 +44,8 @@ def get_spreadsheet(client: gspread.Client, spreadsheet_id: str) -> gspread.Spre
 
 
 def read_leads(spreadsheet: gspread.Spreadsheet) -> list[dict[str, Any]]:
+    # get_all_records() reads the header row and returns each subsequent row as a
+    # {header: value} dict -- exactly the shape dedup/pipeline code expects.
     return spreadsheet.worksheet("Lead").get_all_records()
 
 
@@ -47,6 +54,9 @@ def read_evidence(spreadsheet: gspread.Spreadsheet) -> list[dict[str, Any]]:
 
 
 def _lead_to_row(lead: dict[str, Any]) -> list[Any]:
+    # Walks LEAD_COLUMNS in order so the output list lines up with the Sheet's actual
+    # column positions; missing/None values become "" so gspread writes a blank cell
+    # instead of the literal string "None".
     return [lead.get(col, "") if lead.get(col) is not None else "" for col in LEAD_COLUMNS]
 
 
@@ -56,8 +66,10 @@ def _evidence_to_row(evidence: dict[str, Any]) -> list[Any]:
 
 def append_leads(spreadsheet: gspread.Spreadsheet, leads: list[dict[str, Any]]) -> None:
     if not leads:
-        return
+        return  # avoid an unnecessary API call when there's nothing to write
     rows = [_lead_to_row(lead) for lead in leads]
+    # USER_ENTERED makes Sheets parse values the way a human typing them would (e.g.
+    # numbers stay numbers), rather than storing everything as a literal raw string.
     spreadsheet.worksheet("Lead").append_rows(rows, value_input_option="USER_ENTERED")
 
 
@@ -72,13 +84,18 @@ def touch_source_config(spreadsheet: gspread.Spreadsheet, source_id: str, now: d
     """Updates Last_Run_At / Last_Success_At for one Source_Config row (FR-018/§16)."""
     ws = spreadsheet.worksheet("Source_Config")
     records = ws.get_all_records()
-    for i, row in enumerate(records, start=2):  # row 1 is the header
+    # start=2 because row 1 is the header, so the first data row is Sheet row 2.
+    for i, row in enumerate(records, start=2):
         if row.get("Source_ID") == source_id:
+            # Source_Config column order is Source_ID, Enabled, Last_Run_At,
+            # Last_Success_At, ... -- so columns C and D are the two timestamps.
             ws.update(range_name=f"C{i}:D{i}", values=[[now.isoformat(), now.isoformat()]])
-            return
+            return  # only one row per Source_ID, so stop once found
 
 
 def get_env_config() -> dict[str, str]:
+    # Fails loudly and immediately if a required .env value is missing, rather than
+    # letting a downstream API call fail with a confusing error later.
     required = ["GOOGLE_PLACES_API_KEY", "GOOGLE_SHEETS_CREDENTIALS_JSON", "GOOGLE_SHEETS_SPREADSHEET_ID"]
     missing = [key for key in required if not os.environ.get(key)]
     if missing:

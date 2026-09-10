@@ -12,12 +12,17 @@ import sys
 import gspread
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()  # reads .env into os.environ so the constants below can be populated
 
+# Falls back to a sensible default path if .env doesn't override it.
 CREDENTIALS_FILE = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON", "config/credentials.json")
 SPREADSHEET_ID = os.environ.get("GOOGLE_SHEETS_SPREADSHEET_ID")
+# Where gspread caches the OAuth token after the first browser approval, so later runs
+# don't need to re-approve.
 AUTHORIZED_USER_FILE = "config/authorized_user.json"
 
+# One entry per tab this pilot needs, mapping tab name -> its exact header row, taken
+# verbatim from docs/sheets_schema.md.
 TABS = {
     "Lead": [
         "Lead_ID", "Discovered_Date", "Signal_ID", "Signal_Date", "Lead_Name", "Company",
@@ -41,11 +46,14 @@ TABS = {
     ],
 }
 
-# Pilot Slice: SRC-01 (Google Places) is the only enabled source (PRD §46a).
+# Pilot Slice: SRC-01 (Google Places) is the only enabled source (PRD §46a). This row
+# seeds Source_Config so run_pilot.py's touch_source_config() has something to update.
 SOURCE_CONFIG_SEED_ROW = ["SRC-01", "TRUE", "", "", "0", ""]
 
 
 def get_client() -> gspread.Client:
+    # Triggers the one-time browser OAuth approval on first run, then reuses the cached
+    # token from AUTHORIZED_USER_FILE on every run after that.
     return gspread.oauth(
         credentials_filename=CREDENTIALS_FILE,
         authorized_user_filename=AUTHORIZED_USER_FILE,
@@ -53,6 +61,8 @@ def get_client() -> gspread.Client:
 
 
 def provision(spreadsheet: gspread.Spreadsheet) -> None:
+    # Snapshot which tabs already exist, so this function only creates what's missing
+    # and is safe to run repeatedly (idempotent) without duplicating tabs.
     existing_titles = {ws.title for ws in spreadsheet.worksheets()}
 
     for tab_name, headers in TABS.items():
@@ -60,6 +70,8 @@ def provision(spreadsheet: gspread.Spreadsheet) -> None:
             ws = spreadsheet.worksheet(tab_name)
             print(f"Tab '{tab_name}' already exists — checking header row only.")
         else:
+            # cols=max(len(headers), 10) gives a little headroom beyond the header
+            # count, in case a tab needs an extra working column later.
             ws = spreadsheet.add_worksheet(
                 title=tab_name, rows=1000, cols=max(len(headers), 10)
             )
@@ -67,18 +79,23 @@ def provision(spreadsheet: gspread.Spreadsheet) -> None:
 
         current_header = ws.row_values(1)
         if current_header != headers:
+            # Overwrites row 1 with the correct headers -- safe even on a fresh tab
+            # (nothing to overwrite) or one whose headers drifted from the schema.
             ws.update(range_name="A1", values=[headers])
             print(f"  Wrote {len(headers)} column headers to '{tab_name}'.")
         else:
             print(f"  Headers already correct on '{tab_name}'.")
 
-    # Seed Source_Config with the SRC-01 row if it's empty (header-only).
+    # Seed Source_Config with the SRC-01 row if it's empty (header-only) -- <= 1 means
+    # only the header row exists, no data rows yet.
     source_config_ws = spreadsheet.worksheet("Source_Config")
     if len(source_config_ws.get_all_values()) <= 1:
         source_config_ws.append_row(SOURCE_CONFIG_SEED_ROW)
         print("Seeded Source_Config with SRC-01 (Enabled=TRUE).")
 
-    # Remove the default blank "Sheet1" if it's still there and untouched.
+    # Google Sheets always creates a default "Sheet1" tab on a brand-new spreadsheet --
+    # remove it once our real tabs exist, but only if it's still empty (never touch it
+    # if someone already put data there).
     default = next(
         (ws for ws in spreadsheet.worksheets() if ws.title == "Sheet1"), None
     )

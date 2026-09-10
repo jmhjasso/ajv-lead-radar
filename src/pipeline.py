@@ -26,10 +26,13 @@ import deduplicate as dedup
 import normalize
 import score as scoring
 
-SOURCE_ID = "SRC-01"
+SOURCE_ID = "SRC-01"  # the only source active in the Pilot Slice (§46a)
 
 
 def generate_evidence_id(existing_evidence: list[dict[str, Any]]) -> str:
+    # Same pattern as deduplicate.generate_lead_id: scan existing IDs, take the max
+    # numeric suffix, add one. Kept separate since Evidence_ID and Lead_ID are
+    # independent sequences (E-000001 vs L-000001).
     max_n = 0
     for row in existing_evidence:
         match = re.match(r"E-(\d+)$", row.get("Evidence_ID", "") or "")
@@ -39,15 +42,17 @@ def generate_evidence_id(existing_evidence: list[dict[str, Any]]) -> str:
 
 
 def _build_evidence_row(candidate: dict[str, Any], matched_lead: dict[str, Any], existing_evidence: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
+    # Builds one Evidence_Log row for an exact-duplicate merge (AC-004.1: append
+    # evidence to the existing Lead rather than creating a new row).
     row = {
         "Evidence_ID": generate_evidence_id(existing_evidence),
-        "Lead_ID": matched_lead.get("Lead_ID"),
+        "Lead_ID": matched_lead.get("Lead_ID"),        # which existing lead this evidence belongs to
         "Source_ID": SOURCE_ID,
-        "Source_URL": candidate.get("Source_URL"),
+        "Source_URL": candidate.get("Source_URL"),     # link back to where this signal was observed
         "Retrieved_At": now.isoformat(),
-        "Raw_Snippet": candidate.get("Source_Evidence"),
+        "Raw_Snippet": candidate.get("Source_Evidence"),  # human-readable summary of the raw signal
     }
-    existing_evidence.append(row)  # so a second merge in the same batch gets the next ID
+    existing_evidence.append(row)  # so a second merge in the same batch gets the next ID, not a duplicate one
     return row
 
 
@@ -67,26 +72,34 @@ def run_pipeline_core(
         }
     """
     now = datetime.now(timezone.utc)
+    # Copy so this function never mutates the caller's existing_evidence list in place.
     existing_evidence = list(existing_evidence or [])
 
+    # Stage 1: raw collector output -> canonical Lead-shaped dicts (Status=New or Incomplete).
     normalized = normalize.normalize_batch(raw_records, source_id=SOURCE_ID)
+    # Stage 2: classify each normalized lead against what's already in the Sheet.
     dedup_result = dedup.dedup_batch(normalized, existing_leads)
 
     new_leads: list[dict[str, Any]] = []
     for lead in dedup_result["new"]:
-        lead = dict(lead)
+        lead = dict(lead)  # copy before mutating, since dedup_batch's "new" list is reused elsewhere
         if lead.get("Status") == "New":
+            # Only score complete leads -- an Incomplete one has nothing meaningful to
+            # score yet (§8 failure path: excluded from scoring until enriched/completed).
             score_fields = scoring.score_lead(lead, today=today)
             lead.update(score_fields)
-            lead["Status"] = "Ready_For_Review"
+            lead["Status"] = "Ready_For_Review"  # see module docstring for the state-flow simplification
         lead["Updated_At"] = now.isoformat()
         new_leads.append(lead)
 
+    # Stage 3: exact-duplicate candidates become Evidence_Log rows, not new Lead rows.
     evidence_appends = [
         _build_evidence_row(candidate, matched_lead, existing_evidence, now)
         for candidate, matched_lead in dedup_result["exact_duplicates"]
     ]
 
+    # Stage 4: fuzzy-matched candidates are summarized for a human to resolve manually --
+    # never written to the Sheet automatically (AC-004.2).
     possible_duplicates = [
         {
             "candidate_name": candidate.get("Lead_Name"),

@@ -21,24 +21,28 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+# The Places API (New) Text Search endpoint — POST a JSON query, get back a list of places.
 PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 
+# Places API (New) requires an explicit field mask header naming exactly which fields to
+# return; without it the API rejects the request. Comma-joined here for readability above.
 FIELD_MASK = ",".join(
     [
-        "places.id",
-        "places.displayName",
-        "places.formattedAddress",
-        "places.types",
-        "places.primaryType",
-        "places.rating",
-        "places.userRatingCount",
-        "places.internationalPhoneNumber",
-        "places.websiteUri",
-        "places.googleMapsUri",
+        "places.id",                        # Places' unique identifier for this business
+        "places.displayName",                # business name (nested {text, languageCode})
+        "places.formattedAddress",           # full postal address as one string
+        "places.types",                      # Google's category tags for this place
+        "places.primaryType",                # the single best-fit category tag
+        "places.rating",                     # average star rating (may be absent)
+        "places.userRatingCount",            # review count — the SIG-03 heuristic input
+        "places.internationalPhoneNumber",   # E.164-ish phone string
+        "places.websiteUri",                 # business website, if Places has one on file
+        "places.googleMapsUri",              # link back to the listing — becomes Source_URL
     ]
 )
 
-# PRD §1 Document Control — the 8 priority NWA cities.
+# PRD §1 Document Control — the 8 priority NWA cities. Order doesn't matter; this list
+# just bounds which cities the collector will ever query against.
 CITIES = [
     "Bentonville",
     "Rogers",
@@ -54,6 +58,8 @@ CITIES = [
 # with one representative search phrase. One phrase/category keeps the per-run call count
 # to CITIES x CATEGORIES = 64 for the Pilot Slice, in line with the "quality over
 # quantity" principle (PRD §3/§45) and the <$10/month cost target (NFR-001).
+# The dict key becomes the Lead's Property_Type value directly, so it must stay an
+# exact match to the §14 enum.
 CATEGORY_QUERIES: dict[str, str] = {
     "Office": "office space",
     "Medical/Dental": "medical or dental office",
@@ -77,6 +83,8 @@ def search_places_text(
     rather than raising, so one bad query doesn't take down the whole collection run
     (PRD NFR-003: isolated failure domains)."""
     try:
+        # POST the query text + region; the API key and field mask ride in headers, not
+        # the URL, per Places API (New)'s auth convention (different from the legacy API).
         response = requests.post(
             PLACES_TEXT_SEARCH_URL,
             headers={
@@ -85,11 +93,12 @@ def search_places_text(
                 "X-Goog-FieldMask": FIELD_MASK,
             },
             json={"textQuery": query, "regionCode": region_code},
-            timeout=15,
+            timeout=15,  # fail fast rather than hang the whole collection run on one query
         )
-        response.raise_for_status()
-        return response.json().get("places", [])
+        response.raise_for_status()  # turns a 4xx/5xx into a RequestException below
+        return response.json().get("places", [])  # "places" key is absent when there are 0 results
     except requests.RequestException as exc:
+        # Log to stderr and keep going — one failed query must not abort the whole run.
         print(f"[collector_src01] request failed for query '{query}': {exc}", file=sys.stderr)
         return []
 
@@ -99,12 +108,16 @@ def is_in_target_city(formatted_address: str, city: str) -> bool:
     location signal used here, no geocoding round-trip needed for the Pilot Slice."""
     if not formatted_address:
         return False
+    # Simple substring match: "Bentonville" appearing anywhere in the formatted address
+    # (e.g. "123 SE 5th St, Bentonville, AR 72712, USA") is treated as a match.
     return city.lower() in formatted_address.lower()
 
 
 def passes_new_listing_heuristic(place: dict[str, Any], max_reviews: int = NEW_LISTING_MAX_REVIEWS) -> bool:
     """SIG-03: a listing with no/near-zero reviews is the pilot's only usable signal
     from this source. Missing userRatingCount is treated as 0 (passes)."""
+    # .get(..., 0) means a place with no review-count field at all (brand new, zero
+    # reviews) counts as passing, same as an explicit userRatingCount of 0.
     return place.get("userRatingCount", 0) <= max_reviews
 
 
@@ -114,21 +127,21 @@ def to_raw_record(place: dict[str, Any], city: str, property_type: str, query: s
     normalize.py via config/mappings/src01.json, keeping the collector source-agnostic
     about the target schema."""
     return {
-        "source_id": "SRC-01",
-        "place_id": place.get("id"),
-        "name": place.get("displayName", {}).get("text"),
-        "formatted_address": place.get("formattedAddress"),
-        "city_query": city,
-        "property_type": property_type,
-        "category_query": query,
-        "types": place.get("types", []),
-        "primary_type": place.get("primaryType"),
-        "rating": place.get("rating"),
-        "user_rating_count": place.get("userRatingCount", 0),
-        "phone": place.get("internationalPhoneNumber"),
-        "website": place.get("websiteUri"),
-        "source_url": place.get("googleMapsUri"),
-        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+        "source_id": "SRC-01",                                   # which collector produced this record
+        "place_id": place.get("id"),                              # Places' own unique ID, for dedupe/debugging
+        "name": place.get("displayName", {}).get("text"),         # business name (nested field, so .get twice)
+        "formatted_address": place.get("formattedAddress"),       # full address string, parsed later by normalize.py
+        "city_query": city,                                       # which of the 8 target cities we searched for
+        "property_type": property_type,                           # maps directly to Lead.Property_Type
+        "category_query": query,                                  # the exact search phrase used, for debugging
+        "types": place.get("types", []),                          # Google's raw category tags
+        "primary_type": place.get("primaryType"),                 # Google's single best-fit category tag
+        "rating": place.get("rating"),                            # star rating, if present
+        "user_rating_count": place.get("userRatingCount", 0),          # -> SIG-03 heuristic input
+        "phone": place.get("internationalPhoneNumber"),           # -> Lead.Phone
+        "website": place.get("websiteUri"),                       # -> Lead.Website
+        "source_url": place.get("googleMapsUri"),                 # -> Lead.Source_URL (evidence trail)
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),   # timestamp this record was pulled, for evidence
     }
 
 
@@ -140,12 +153,18 @@ def collect(
     """Runs every (city, category) query, filters to target cities + the SIG-03
     new-listing heuristic, and returns the raw record list. This is FR-001/FR-002's
     'discover + filter before normalization' step (AC-001.1/AC-001.2)."""
+    # Allow overriding the full city/category lists for testing or a partial run
+    # (see run_pilot.py's --cities/--categories flags) without touching the defaults.
     cities = cities if cities is not None else CITIES
     category_queries = category_queries if category_queries is not None else CATEGORY_QUERIES
 
     records: list[dict[str, Any]] = []
+    # Outer loop over categories, inner loop over cities -- order doesn't affect the
+    # result, just the sequence API calls happen in.
     for property_type, phrase in category_queries.items():
         for city in cities:
+            # Natural-language query Google's Text Search endpoint understands directly,
+            # e.g. "medical or dental office in Bentonville, AR".
             query = f"{phrase} in {city}, AR"
             for place in search_places_text(query, api_key):
                 address = place.get("formattedAddress", "")
@@ -158,7 +177,9 @@ def collect(
 
 
 def main() -> None:
-    load_dotenv()
+    # Entry point for running the collector standalone (python src/collector_src01.py),
+    # separate from the full pipeline (run_pilot.py) -- useful for a quick manual check.
+    load_dotenv()  # reads .env into os.environ (GOOGLE_PLACES_API_KEY, etc.)
     api_key = os.environ.get("GOOGLE_PLACES_API_KEY")
     if not api_key:
         sys.exit("GOOGLE_PLACES_API_KEY is not set in .env")
@@ -166,6 +187,8 @@ def main() -> None:
     records = collect(api_key)
     print(f"Collected {len(records)} candidate SIG-03 records across {len(CITIES)} cities.")
 
+    # Raw output is written locally only -- data/ is gitignored, so real lead data
+    # (even pre-normalization) never lands in version control (PRD §39 data governance).
     os.makedirs("data", exist_ok=True)
     out_path = f"data/raw_src01_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
     with open(out_path, "w", encoding="utf-8") as f:

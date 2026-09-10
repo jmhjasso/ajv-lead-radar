@@ -26,6 +26,23 @@ once, in order.
 2. Search for and **Enable**: `Places API (New)`
 3. Search for and **Enable**: `Google Sheets API`
 
+## 2a. Complete Maps Platform project onboarding (required — easy to miss)
+
+Enabling "Places API (New)" in the API Library is **not enough by itself**. Google Maps
+Platform requires a separate one-time project setup, even when billing is already active
+and the API shows as enabled. Symptom if you skip this: every Places API call returns
+`403 PERMISSION_DENIED` with no more specific message, regardless of key restrictions or
+billing status — this cost real debugging time on 2026-09-10, so don't skip it.
+
+1. Go to https://console.cloud.google.com/google/maps-apis/overview?project=<your-project-id>
+2. If you see a red banner reading **"Maps project needed to use Maps APIs"**, click
+   **"Set up Maps Project"** and follow it through.
+3. You may also hit a "Welcome" survey (industry/use-case questions) — click **"Skip for
+   now"**, it's cosmetic and doesn't affect permissions.
+4. Any API key created/restricted *after* this onboarding step completes will work; keys
+   created before it may need to be re-saved (open the key, re-click the restriction
+   save button) once onboarding is done.
+
 ## 3. Create the Places API key (for Step 3, the collector)
 
 1. Go to https://console.cloud.google.com/apis/credentials

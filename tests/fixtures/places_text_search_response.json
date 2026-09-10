@@ -1,0 +1,36 @@
+{
+  "places": [
+    {
+      "id": "ChIJ_new_dental_bentonville",
+      "types": ["dentist", "health", "point_of_interest", "establishment"],
+      "formattedAddress": "123 SE 5th St, Bentonville, AR 72712, USA",
+      "primaryType": "dentist",
+      "displayName": {"text": "Ozark Family Dental", "languageCode": "en"},
+      "userRatingCount": 0,
+      "internationalPhoneNumber": "+1 479-555-1234",
+      "websiteUri": "https://ozarkfamilydental.com",
+      "googleMapsUri": "https://maps.google.com/?cid=1111111111"
+    },
+    {
+      "id": "ChIJ_established_clinic_bentonville",
+      "types": ["doctor", "health", "point_of_interest", "establishment"],
+      "formattedAddress": "456 N Walton Blvd, Bentonville, AR 72712, USA",
+      "primaryType": "doctor",
+      "displayName": {"text": "Established Family Clinic", "languageCode": "en"},
+      "rating": 4.6,
+      "userRatingCount": 218,
+      "internationalPhoneNumber": "+1 479-555-9999",
+      "websiteUri": "https://establishedclinic.example.com",
+      "googleMapsUri": "https://maps.google.com/?cid=2222222222"
+    },
+    {
+      "id": "ChIJ_out_of_scope_city",
+      "types": ["doctor", "health", "point_of_interest", "establishment"],
+      "formattedAddress": "789 Main St, Siloam Springs, AR 72761, USA",
+      "primaryType": "doctor",
+      "displayName": {"text": "Out Of Area Clinic", "languageCode": "en"},
+      "userRatingCount": 1,
+      "googleMapsUri": "https://maps.google.com/?cid=3333333333"
+    }
+  ]
+}

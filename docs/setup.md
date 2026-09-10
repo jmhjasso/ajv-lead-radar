@@ -1,8 +1,15 @@
 # Google Cloud Setup (Chuy — requires your login/billing, PRD §65 human-only boundary)
 
 One Google Cloud project covers both credentials the Pilot Slice needs: a **Places API key**
-(Step 3, collector) and a **service account** for Sheets access (Step 2, datastore). Do this
+(Step 3, collector) and an **OAuth client** for Sheets access (Step 2, datastore). Do this
 once, in order.
+
+> **Note (2026-09-10):** the original version of this doc used a service-account JSON key for
+> Sheets access. Many Google Cloud orgs now block service-account key creation by default
+> (`iam.managed.disableServiceAccountKeyCreation` policy) — you hit that. Section 4 below uses
+> an OAuth client instead: it authenticates as *your own* Google account, isn't affected by
+> that policy, and is simpler for a single-user tool anyway — no separate service-account
+> email to share the spreadsheet with.
 
 ## 1. Create the Google Cloud project
 
@@ -30,23 +37,33 @@ once, in order.
 4. Copy the key value. **Do not paste it into chat or commit it to git.** It goes in a local
    `.env` file (see step 6).
 
-## 4. Create the service account (for Step 2, Sheets access)
+## 4. Create an OAuth client (for Step 2, Sheets access — replaces the blocked service account)
 
-1. Still in https://console.cloud.google.com/apis/credentials
-2. **Create Credentials → Service account**
-3. Name: `ajv-lead-radar-sheets`, no special roles needed at the project level (default is
-   fine — access is granted per-spreadsheet by sharing, not by IAM role)
-4. Once created, click the service account → **Keys** tab → **Add Key → Create new key → JSON**
-5. This downloads a JSON file (something like `ajv-lead-radar-xxxxx.json`). This is a secret
-   credential — treat it like a password.
-6. Open the JSON file and copy the `"client_email"` value (looks like
-   `ajv-lead-radar-sheets@ajv-lead-radar.iam.gserviceaccount.com`) — you'll need it next.
+1. First, configure the consent screen if you haven't already: go to
+   https://console.cloud.google.com/auth/overview, choose **External** user type (fine for
+   a personal/small-business tool not going through Google review), fill in an app name
+   (`AJV Lead Radar`) and your email as support/contact. Under **Test users**, add your own
+   Google account email — this keeps the app in "Testing" mode, which is all a solo tool
+   needs (no Google review required, just a warning screen you'll click through once).
+2. Go to https://console.cloud.google.com/apis/credentials
+3. **Create Credentials → OAuth client ID**
+4. Application type: **Desktop app**. Name: `ajv-lead-radar-desktop`.
+5. Click **Create**, then **Download JSON** on the client you just created. This file
+   (something like `client_secret_....json`) is *not* a service-account key, so it isn't
+   affected by the org policy that blocked step 4 before. It's still a credential — treat it
+   like a password, never commit it.
+6. Save it somewhere on your machine — you'll tell me the path, not paste its contents.
 
-## 5. Create the blank spreadsheet and share it with the service account
+The first time the pipeline actually calls the Sheets API, it will open a browser window
+asking you to log into the Google account you added as a test user and approve access — a
+one-time step that stores a local token afterward (also gitignored) so you won't need to
+re-approve every run.
+
+## 5. Create the blank spreadsheet in your own Drive
 
 1. Go to https://sheets.google.com, create a new blank spreadsheet, name it `AJV Lead Radar`.
-2. Click **Share**, paste in the service account email from step 4.6, give it **Editor**
-   access, uncheck "notify people" (it's not a real inbox).
+2. No sharing step needed — since we're authenticating as you via OAuth (not a service
+   account), the pipeline will already have access to anything in your own Drive.
 3. Copy the spreadsheet ID from the URL — the long string between `/d/` and `/edit`, e.g.
    `https://docs.google.com/spreadsheets/d/`**`1AbCdEfGhIjKlMnOpQrStUvWxYz`**`/edit`
 
@@ -59,15 +76,16 @@ once, in order.
 
 ## 7. Where credentials go locally (never in git — enforced by `.gitignore`)
 
-Once you have the three secrets (Places API key, service-account JSON file, spreadsheet ID),
-tell me and I'll set up a local `.env` file (already gitignored) plus point the service-account
-JSON at `config/credentials.json` (also gitignored) — you'll paste/save the values yourself so
-they never pass through chat. I'll then write the setup script that provisions the 4 tabs.
+Once you have the three items (Places API key, OAuth client JSON file, spreadsheet ID), tell
+me and I'll set up a local `.env` file (already gitignored) plus point the OAuth client JSON
+at `config/credentials.json` (also gitignored) — you'll paste/save the values yourself so they
+never pass through chat. I'll then write the setup script that provisions the 4 tabs, which
+will trigger the one-time browser login/approval described in step 4.
 
 ## What to send back when ready
 
 You don't need to paste secret values into chat. Just tell me:
 - "Places API key created" (I'll ask you to save it into `.env` yourself, I'll give you the
   exact line to add)
-- "Service account JSON downloaded to [wherever you saved it]"
+- "OAuth client JSON downloaded to [wherever you saved it]"
 - The spreadsheet ID (this one's not secret — just an identifier — safe to share directly)

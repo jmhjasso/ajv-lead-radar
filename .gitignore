@@ -2,7 +2,10 @@
 .env
 *.env
 config/credentials*.json
+config/authorized_user.json
+config/token.json
 **/service_account*.json
+**/client_secret*.json
 
 # Python
 .venv/
